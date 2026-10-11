@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Digitaler Rückmeldebogen - PKG Overath</title>
+    <!-- Tailwind CSS für die Touch-freundliche UI -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- html2pdf.js für die PDF-Generierung -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        body {
+            background-color: #f3f4f6;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overscroll-behavior-y: none;
+        }
+
+        /* Styling für die Touch-Eingabefelder */
+        .touch-input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            font-size: 1.125rem;
+            border-radius: 0.5rem;
+            border: 1px solid #d1d5db;
+            background-color: #ffffff;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .touch-input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+        }
+
+        /* Canvas für die Unterschrift */
+        #signature-pad {
+            touch-action: none; /* Verhindert Scrollen beim Unterschreiben */
+            border: 2px dashed #9ca3af;
+            border-radius: 0.5rem;
+            background-color: #ffffff;
+            cursor: crosshair;
+        }
+
+        /* VERSTECKTES PDF-TEMPLATE 
+           Dieses Layout ahmt exakt das Original-Word-Dokument nach.
+        */
+        #pdf-template {
+            width: 794px; /* Exakte A4 Breite in Pixeln (96dpi) */
+            height: 1050px; /* Minimal reduziert von 1123px, um leere 2. Seite zu verhindern */
+            padding: 50px 60px; /* Normale, breite Ränder (sieht aus wie Word) */
+            background: white;
+            font-family: "Times New Roman", Times, serif;
+            color: black;
+            box-sizing: border-box;
+            overflow: hidden; /* Verhindert das Umbrechen auf Seite 2 */
+        }
+        .pdf-header {
+            display: flex;
+            justify-content: flex-end; /* Logo entfernt, Adresse nach rechts bündig */
+            margin-bottom: 20px;
+        }
+        .pdf-school-address {
+            font-size: 12px;
+            line-height: 1.4;
+            text-align: right;
+        }
+        .pdf-title {
+            text-align: center;
+            font-weight: bold;
+            font-size: 16px;
+            margin: 20px 0;
+            text-decoration: underline;
+        }
+        .pdf-row {
+            margin-bottom: 15px;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        .pdf-val {
+            font-family: "Courier New", Courier, monospace;
+            font-weight: bold;
+            border-bottom: 1px dotted #000;
+            padding: 0 5px;
+            display: inline-block;
+            min-width: 50px;
+        }
+    </style>
+</head>
+<body class="text-gray-800">
+
+    <!-- LADE-OVERLAY (Verdeckt das Template beim Generieren) -->
+    <div id="loading-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-80 z-[9999] flex flex-col items-center justify-center hidden">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-white mb-4"></div>
+        <p class="text-white text-xl font-bold">PDF wird erstellt...</p>
+        <p class="text-gray-200 text-sm mt-2">Bitte einen Moment Geduld.</p>
+    </div>
+
+    <!-- SICHTBARE BENUTZEROBERFLÄCHE (TOUCH-OPTIMIERT) -->
+    <div id="app-container" class="max-w-3xl mx-auto p-4 sm:p-6 lg:p-8 mt-4 pb-20">
+        
+        <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+            <div class="bg-blue-600 p-6 text-white text-center">
+                <h1 class="text-2xl sm:text-3xl font-bold">Rückmeldebogen Betriebspraktikum</h1>
+                <p class="text-blue-100 mt-2">Paul-Klee-Gymnasium Overath (31.05. – 11.06.2027)</p>
+            </div>
+
+            <div class="p-6 space-y-8">
+                <!-- Sektion 1: Schülerdaten -->
+                <section>
+                    <h2 class="text-xl font-bold text-gray-700 mb-4 flex items-center border-b pb-2">
+                        <span class="bg-blue-100 text-blue-600 rounded-full w-8 h-8 flex items-center justify-center mr-3">1</span>
+                        Daten der Schülerin / des Schülers
+                    </h2>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div class="sm:col-span-2">
+                            <label class="block text-sm font-semibold text-gray-600 mb-1">Name, Vorname</label>
+                            <input type="text" id="in_studentName" class="touch-input" placeholder="Max Mustermann">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-600 mb-1">Klasse</label>
+                            <input type="text" id="in_studentClass" class="touch-input" placeholder="z.B. 9b">
+                        </div>
+                        <div class="sm:col-span-2">
+                            <label class="block text-sm font-semibold text-gray-600 mb-1">Straße & Hausnummer</label>
+                            <input type="text" id="in_studentStreet" class="touch-input" placeholder="Musterstraße 1">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-600 mb-1">PLZ</label>
+                            <input type="text" id="in_studentZip" class="touch-input" placeholder="51491">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-600 mb-1">Wohnort</label>
+                            <input type="text" id="in_studentCity" class="touch-input" placeholder="Overath">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-600 mb-1">Telefon</label>
+                            <input type="tel" id="in_studentPhone" class="touch-input" placeholder="02206 / ...">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-600 mb-1">E-Mail</label>
+                            <input type="email" id="in_studentEmail" class="touch-input" placeholder="max@beispiel.de">
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Sektion 2: Betriebsdaten -->
+                <section>
+                    <h2 class="text-xl font-bold text-gray-700 mb-4 flex items-center border-b pb-2">
+                        <span class="bg-blue-100 text-blue-600 rounded-full w-8 h-8 flex items-center justify-center mr-3">2</span>
+                        Bestätigung der Praktikumsstelle
+                    </h2>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div class="sm:col-span-2">
+                            <label class="block text-sm font-semibold text-gray-600 mb-1">Firma / Unternehmen</label>
+                            <input type="text" id="in_companyName" class="touch-input" placeholder="Muster GmbH">
+                        </div>
+                        <div class="sm:col-span-2">
+                            <label class="block text-sm font-semibold text-gray-600 mb-1">Evtl. Abteilung</label>
+                            <input type="text" id="in_companyDept" class="touch-input" placeholder="z.B. IT, Personal, Werkstatt">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-600 mb-1">Branche</label>
+                            <input type="text" id="in_companyBranch" class="touch-input" placeholder="z.B. Handwerk, IT, Medizin">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-600 mb-1">Berufsbild der Stelle</label>
+                            <input type="text" id="in_companyJob" class="touch-input" placeholder="z.B. Mechatroniker/in">
+                        </div>
+                        <div class="sm:col-span-2">
+                            <label class="block text-sm font-semibold text-gray-600 mb-1">Straße (der Praktikumsstelle)</label>
+                            <input type="text" id="in_companyStreet" class="touch-input">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-600 mb-1">PLZ</label>
+                            <input type="text" id="in_companyZip" class="touch-input">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-600 mb-1">Ort</label>
+                            <input type="text" id="in_companyCity" class="touch-input">
+                        </div>
+                        <div class="sm:col-span-2 bg-gray-50 p-4 rounded-lg">
+                            <label class="block text-sm font-semibold text-gray-600 mb-1">Infektionsschutzgesetz Bescheinigung</label>
+                            <p class="text-xs text-gray-500 mb-2">Falls eine Bescheinigung nach § 43 Abs. 1, Nr. 1 des Infektionsschutzgesetzes gewünscht wird, bitte hier eintragen:</p>
+                            <input type="text" id="in_companyInfection" class="touch-input" placeholder="Ja / Nein / Sonstiges">
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Sektion 3: Ansprechpartner -->
+                <section>
+                    <h2 class="text-xl font-bold text-gray-700 mb-4 flex items-center border-b pb-2">
+                        <span class="bg-blue-100 text-blue-600 rounded-full w-8 h-8 flex items-center justify-center mr-3">3</span>
+                        Ansprechpartner/in im Betrieb
+                    </h2>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div class="sm:col-span-2">
+                            <label class="block text-sm font-semibold text-gray-600 mb-1">Frau / Herr (Name)</label>
+                            <input type="text" id="in_contactName" class="touch-input" placeholder="Name eintragen">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-600 mb-1">Telefon</label>
+                            <input type="tel" id="in_contactPhone" class="touch-input">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-600 mb-1">E-Mail</label>
+                            <input type="email" id="in_contactEmail" class="touch-input">
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Sektion 4: Unterschrift -->
+                <section>
+                    <h2 class="text-xl font-bold text-gray-700 mb-4 flex items-center border-b pb-2">
+                        <span class="bg-blue-100 text-blue-600 rounded-full w-8 h-8 flex items-center justify-center mr-3">4</span>
+                        Unterschrift des Betriebs
+                    </h2>
+                    <div class="mb-4">
+                        <label class="block text-sm font-semibold text-gray-600 mb-1">Unterschriftsdatum & Ort</label>
+                        <input type="text" id="in_signDateLoc" class="touch-input" placeholder="z.B. Köln, 15.10.2026">
+                    </div>
+                    
+                    <div class="relative">
+                        <label class="block text-sm font-semibold text-gray-600 mb-2">Bitte hier im Feld unterschreiben (Touch/Maus):</label>
+                        <canvas id="signature-pad" width="600" height="200" class="w-full h-48"></canvas>
+                        <button onclick="clearSignature()" class="absolute bottom-2 right-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded text-sm font-semibold">
+                            Löschen / Neu
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Export Button -->
+                <div class="pt-6 border-t border-gray-200">
+                    <button onclick="generatePDF()" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold text-xl py-4 rounded-xl shadow-lg transition-transform transform hover:scale-105 flex justify-center items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        PDF generieren & speichern
+                    </button>
+                    <p class="text-center text-sm text-gray-500 mt-3">Das Dokument wird generiert und heruntergeladen. Dies kann ein paar Sekunden dauern.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- VERSTECKTES TEMPLATE FÜR DEN PDF EXPORT -->
+    <!-- Wird in den Dokumentenfluss geladen, wenn das UI ausgeblendet wird -->
+    <div id="pdf-wrapper" style="display: none; background: white; width: 100%; min-height: 100vh;">
+        <div id="pdf-template">
+            <!-- Header (Nur Schuladresse, Logo entfernt) -->
+            <div class="pdf-header">
+                <div class="pdf-school-address">
+                    <strong>Paul Klee Gymnasium Overath</strong><br>
+                    Pérenchiesstraße 3<br>
+                    51491 Overath<br>
+                    Tel. 02206 9050960 / 65<br>
+                    Fax: 02206 90509 999<br>
+                    sekretariat@pkg-overath.de<br><br>
+                    Overath, 22.06.2026
+                </div>
+            </div>
+
+            <!-- Titel -->
+            <div class="pdf-title">
+                Betriebspraktikum des PKG vom 31.05.2027– 11.06.2027
+            </div>
+
+            <!-- Schülerdaten -->
+            <div class="pdf-row">
+                Name der Schülerin / des Schülers: <span id="out_studentName" class="pdf-val"></span>, Kl.: <span id="out_studentClass" class="pdf-val"></span>
+            </div>
+            <div class="pdf-row" style="margin-bottom: 4px;">Adresse:</div>
+            <div class="pdf-row">
+                Straße: <span id="out_studentStreet" class="pdf-val"></span>
+            </div>
+            <div class="pdf-row">
+                PLZ: <span id="out_studentZip" class="pdf-val"></span> Wohnort: <span id="out_studentCity" class="pdf-val"></span>
+            </div>
+            <div class="pdf-row">
+                Tel.: <span id="out_studentPhone" class="pdf-val"></span> E-Mail: <span id="out_studentEmail" class="pdf-val"></span>
+            </div>
+
+            <!-- Betriebsdaten -->
+            <div class="pdf-row" style="margin-top: 20px; font-weight: bold;">
+                Bestätigung einer selbst gesuchten Praktikumsstelle
+            </div>
+            <div class="pdf-row">
+                Firma: <span id="out_companyName" class="pdf-val"></span>
+            </div>
+            <div class="pdf-row">
+                Event. Abteilung: <span id="out_companyDept" class="pdf-val"></span>
+            </div>
+            <div class="pdf-row">
+                Branche: <span id="out_companyBranch" class="pdf-val"></span>
+            </div>
+            <div class="pdf-row">
+                Berufsbild der Praktikumsstelle: <span id="out_companyJob" class="pdf-val"></span>
+            </div>
+            <div class="pdf-row" style="margin-bottom: 4px;">Adresse (der Praktikumsstelle):</div>
+            <div class="pdf-row">
+                Straße: <span id="out_companyStreet" class="pdf-val"></span>
+            </div>
+            <div class="pdf-row">
+                Postleitzahl: <span id="out_companyZip" class="pdf-val"></span> Ort: <span id="out_companyCity" class="pdf-val"></span>
+            </div>
+
+            <!-- Infektionsschutz -->
+            <div class="pdf-row" style="margin-top: 15px;">
+                Falls eine Bescheinigung nach § 43 Abs. 1, Nr. 1 des Infektionsschutzgesetzes gewünscht wird, bitte hier eintragen:
+            </div>
+            <div class="pdf-row">
+                <span id="out_companyInfection" class="pdf-val" style="min-width: 200px;"></span>
+            </div>
+
+            <!-- Ansprechpartner -->
+            <div class="pdf-row" style="margin-top: 15px;">
+                Name der Ansprechpartnerin/des Ansprechpartners bei der Firma:
+            </div>
+            <div class="pdf-row">
+                Frau / Herr <span id="out_contactName" class="pdf-val"></span>
+            </div>
+            <div class="pdf-row">
+                Tel.: <span id="out_contactPhone" class="pdf-val"></span> Email: <span id="out_contactEmail" class="pdf-val"></span>
+            </div>
+
+            <!-- Unterschrift -->
+            <div class="pdf-row" style="margin-top: 25px; display: flex; justify-content: space-between; align-items: flex-end;">
+                <div>
+                    Ort, den <span id="out_signDateLoc" class="pdf-val"></span><br>
+                    <span style="font-size: 10px; color: #666;">(Ort, Datum)</span>
+                </div>
+                <div style="text-align: center;">
+                    <!-- Das hier ist das Bild der Unterschrift -->
+                    <img id="out_signatureImage" src="" style="display: none; height: 50px; max-width: 250px; margin-bottom: 5px;">
+                    <div style="border-top: 1px dotted #000; width: 250px; padding-top: 5px;">
+                        (Unterschrift)<br>
+                        <span style="font-size: 10px; color: #666;">[Bitte in Druckbuchstaben ausfüllen !!]</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript Logik -->
+    <script>
+        // --- 1. SIGNATUR CANVAS LOGIK ---
+        const canvas = document.getElementById('signature-pad');
+        const ctx = canvas.getContext('2d');
+        let isDrawing = false;
+
+        // Anpassung der Canvas-Größe für scharfe Darstellung (Retina/High-DPI Support)
+        function resizeCanvas() {
+            const ratio = Math.max(window.devicePixelRatio || 1, 1);
+            // Speichere aktuellen Inhalt
+            const dataUrl = canvas.toDataURL();
+            
+            canvas.width = canvas.offsetWidth * ratio;
+            canvas.height = canvas.offsetHeight * ratio;
+            ctx.scale(ratio, ratio);
+            
+            // Setze Stift-Stil
+            ctx.lineWidth = 2.5;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.strokeStyle = '#000000';
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        function getMousePos(e) {
+            const rect = canvas.getBoundingClientRect();
+            // Fallback für Touch vs Maus
+            let clientX = e.clientX;
+            let clientY = e.clientY;
+            
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            }
+
+            return {
+                x: clientX - rect.left,
+                y: clientY - rect.top
+            };
+        }
+
+        // Event-Listener: Mousedown / Touchstart
+        const startDrawing = (e) => {
+            e.preventDefault(); // Verhindert Scrollen
+            isDrawing = true;
+            const pos = getMousePos(e);
+            ctx.beginPath();
+            ctx.moveTo(pos.x, pos.y);
+        };
+
+        // Event-Listener: Mousemove / Touchmove
+        const draw = (e) => {
+            e.preventDefault(); // Verhindert Scrollen
+            if (!isDrawing) return;
+            const pos = getMousePos(e);
+            ctx.lineTo(pos.x, pos.y);
+            ctx.stroke();
+        };
+
+        // Event-Listener: Mouseup / Touchend
+        const stopDrawing = (e) => {
+            e.preventDefault();
+            isDrawing = false;
+        };
+
+        // Maus Events
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mouseout', stopDrawing);
+
+        // Touch Events
+        canvas.addEventListener('touchstart', startDrawing, { passive: false });
+        canvas.addEventListener('touchmove', draw, { passive: false });
+        canvas.addEventListener('touchend', stopDrawing, { passive: false });
+        canvas.addEventListener('touchcancel', stopDrawing, { passive: false });
+
+        // Unterschrift leeren
+        function clearSignature() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // --- 2. PDF GENERIERUNG ---
+        function generatePDF() {
+            // Zeige Ladebildschirm
+            const overlay = document.getElementById('loading-overlay');
+            overlay.classList.remove('hidden');
+
+            // WICHTIG: Nach oben scrollen, um html2canvas Bugs auf Touch-Geräten zu vermeiden
+            window.scrollTo(0, 0);
+
+            // Mappings: ID des Eingabefeldes -> ID im PDF-Template
+            const fields = [
+                'studentName', 'studentClass', 'studentStreet', 'studentZip', 'studentCity', 'studentPhone', 'studentEmail',
+                'companyName', 'companyDept', 'companyBranch', 'companyJob', 'companyStreet', 'companyZip', 'companyCity',
+                'companyInfection', 'contactName', 'contactPhone', 'contactEmail', 'signDateLoc'
+            ];
+
+            // 1. Daten in das versteckte Template übertragen
+            fields.forEach(field => {
+                const val = document.getElementById('in_' + field).value;
+                const outEl = document.getElementById('out_' + field);
+                if (val) {
+                    outEl.innerText = val;
+                    outEl.style.minWidth = 'auto';
+                } else {
+                    outEl.innerText = '';
+                    outEl.style.minWidth = '100px'; // Platzhalter-Linie für leere Felder
+                }
+            });
+
+            // 2. Unterschrift als Bild übertragen
+            const signatureData = canvas.toDataURL("image/png");
+            const sigImg = document.getElementById('out_signatureImage');
+            
+            // Überprüfen ob das Canvas leer ist
+            if (signatureData.length > 3000) {
+                sigImg.src = signatureData;
+                sigImg.style.display = 'block';
+            } else {
+                sigImg.style.display = 'none';
+            }
+
+            // 3. UI komplett ausblenden, Template in den regulären Fluss schieben
+            const appContainer = document.getElementById('app-container');
+            const wrapper = document.getElementById('pdf-wrapper');
+            const element = document.getElementById('pdf-template');
+            
+            // WICHTIG: Das Formular wird unsichtbar gemacht! 
+            // So startet das PDF garantiert absolut oben links (0,0) ohne störende Scroll-Verschiebungen.
+            appContainer.style.display = 'none';
+            wrapper.style.display = 'block';
+
+            // Scrollposition resetten
+            window.scrollTo(0, 0);
+
+            // 4. Timeout abwarten, damit der Browser die CSS-Regeln sicher rendert
+            setTimeout(() => {
+                const studentNameForFile = document.getElementById('in_studentName').value.replace(/[^a-zA-Z0-9]/g, '_') || 'Schueler';
+                const opt = {
+                    margin:       0,
+                    filename:     `Rueckmeldebogen_Praktikum_${studentNameForFile}.pdf`,
+                    image:        { type: 'jpeg', quality: 0.98 },
+                    pagebreak:    { mode: ['avoid-all'] }, /* Verbietet ausdrücklich jede zweite Seite */
+                    html2canvas:  { 
+                        scale: 2,
+                        useCORS: true,
+                        windowWidth: 794,
+                        x: 0,           // Zwingt den Canvas bei exakt x=0 zu starten
+                        y: 0,           // Zwingt den Canvas bei exakt y=0 zu starten
+                        scrollX: 0,
+                        scrollY: 0
+                    },
+                    jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                };
+
+                // 5. PDF generieren
+                html2pdf().set(opt).from(element).save().then(() => {
+                    // Aufräumen: Template wieder verstecken, Formular wieder anzeigen, Ladebildschirm weg
+                    wrapper.style.display = 'none';
+                    appContainer.style.display = 'block';
+                    overlay.classList.add('hidden');
+                }).catch(err => {
+                    console.error("PDF Fehler:", err);
+                    wrapper.style.display = 'none';
+                    appContainer.style.display = 'block';
+                    overlay.classList.add('hidden');
+                    alert("Es gab einen Fehler beim Erstellen der PDF.");
+                });
+            }, 100); 
+        }
+    </script>
+<!-- rechtliches --><style>.erik-recht{font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;text-align:center;padding:18px 12px 22px;opacity:.75}.erik-recht a{color:inherit}@media print{.erik-recht{display:none}}</style><footer class="erik-recht"><a href="https://erikdahlmann.github.io/impressum.html">Impressum</a> · <a href="https://erikdahlmann.github.io/datenschutz.html">Datenschutz</a></footer><!-- /rechtliches --></body>
+</html>
